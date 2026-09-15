@@ -1,0 +1,25 @@
+\documentclass{article}
+\usepackage{lipsum}
+
+\title{A Multi-Page Document}
+\author{SyncTeX fixture}
+
+\begin{document}
+\maketitle
+
+\section{First section}
+This sentence is on the first page and is easy to point at.
+
+\lipsum[1-6]
+
+\section{Second section}
+This sentence should have been pushed onto the second page.
+
+\lipsum[7-12]
+
+\section{Third section}
+And this one onto the third page, so page mapping is genuinely exercised.
+
+\lipsum[13-15]
+
+\end{document}

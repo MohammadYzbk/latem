@@ -1,0 +1,4 @@
+interface:
+  display_name: "Commit Push"
+  short_description: "Review, commit, push, and open a PR"
+  default_prompt: "Use $commit-push to review and publish the pending repository changes."

@@ -1,0 +1,13 @@
+\documentclass{article}
+\usepackage{lipsum}
+\begin{document}
+
+\section{First}
+This sentence is in the root file on page one.
+
+% No blank line before the \input: the paragraph is still open when the chapter
+% is read, so TeX attributes the lines it breaks off to the chapter's first line.
+\lipsum[1-7]
+\input{chapters/second}
+
+\end{document}

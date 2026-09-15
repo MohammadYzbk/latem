@@ -1,0 +1,43 @@
+# Build output. Note that build/darwin and build/windows are *inputs* (plist and
+# manifest templates Wails packages with), so only bin/ is ignored here.
+/build/bin/
+*.app
+
+# Wails generated bindings (regenerated on build)
+/frontend/wailsjs/
+
+# Frontend
+/frontend/node_modules/
+/frontend/package.json.md5
+
+# The build output is ignored, but the directory itself must exist: main.go
+# embeds it, so `go build`/`go test` fail on a fresh checkout without it.
+/frontend/dist/*
+!/frontend/dist/.gitkeep
+
+# Go
+*.test
+*.out
+
+# Compile artifacts from LaTeX spikes / scratch work
+*.aux
+*.log
+*.pdf
+*.synctex.gz
+# ...except the SyncTeX parser's fixtures, which are real engine output and the
+# only thing its tests run against.
+!internal/synctex/testdata/*.synctex.gz
+*.fls
+*.fdb_latexmk
+*.toc
+!/docs/**/*.pdf
+
+# Editors / OS
+.DS_Store
+.idea/
+.vscode/
+*.swp
+
+# Personal agent settings and local planning artifacts
+/.claude/settings.local.json
+/.superpowers/

@@ -1,0 +1,60 @@
+note: "version 2" Tectonic command-line interface activated
+note: Running TeX ...
+(main.tex
+LaTeX2e <2021-11-15> patch level 1
+L3 programming layer <2022-02-24> (article.cls
+Document Class: article 2021/10/04 v1.4n Standard LaTeX document class
+(size10.clo)) (graphicx.sty (keyval.sty) (graphics.sty (trig.sty) (graphics.cfg
+) (xetex.def))) (l3backend-xetex.def)
+No file main.aux.
+(ts1cmr.fd) (chapters/intro
+
+LaTeX Warning: Citation `knuth1984' on page 1 undefined on input line 5.
+
+) (chapters/method)
+No file main.bbl.
+[1] (main.aux)
+
+LaTeX Warning: There were undefined references.
+
+ )
+Output written on main.xdv (1 page, 3820 bytes).
+Transcript written on main.log.
+note: Running BibTeX on main.aux ...
+note: Rerunning TeX because bibtex was run ...
+(main.tex
+LaTeX2e <2021-11-15> patch level 1
+L3 programming layer <2022-02-24> (article.cls
+Document Class: article 2021/10/04 v1.4n Standard LaTeX document class
+(size10.clo)) (graphicx.sty (keyval.sty) (graphics.sty (trig.sty) (graphics.cfg
+) (xetex.def))) (l3backend-xetex.def) (main.aux) (ts1cmr.fd) (chapters/intro
+
+LaTeX Warning: Citation `knuth1984' on page 1 undefined on input line 5.
+
+) (chapters/method) (main.bbl) [1] (main.aux)
+
+LaTeX Warning: There were undefined references.
+
+
+LaTeX Warning: Label(s) may have changed. Rerun to get cross-references right.
+
+ )
+Output written on main.xdv (1 page, 4608 bytes).
+Transcript written on main.log.
+note: Rerunning TeX because "main.aux" changed ...
+(main.tex
+LaTeX2e <2021-11-15> patch level 1
+L3 programming layer <2022-02-24> (article.cls
+Document Class: article 2021/10/04 v1.4n Standard LaTeX document class
+(size10.clo)) (graphicx.sty (keyval.sty) (graphics.sty (trig.sty) (graphics.cfg
+) (xetex.def))) (l3backend-xetex.def) (main.aux) (ts1cmr.fd) (chapters/intro)
+(chapters/method) (main.bbl) [1] (main.aux) )
+Output written on main.xdv (1 page, 4544 bytes).
+Transcript written on main.log.
+note: Running xdvipdfmx ...
+[1]18294 bytes written
+note: Writing `/tmp/demoout2/main.log` (3.0283203125 KiB)
+note: Writing `/tmp/demoout2/main.pdf` (17.865234375 KiB)
+note: Writing `/tmp/demoout2/main.synctex.gz` (1.412109375 KiB)
+note: Writing `/tmp/demoout2/main.blg` (185 B)
+note: Skipped writing 2 intermediate files (use --keep-intermediates to keep them)
