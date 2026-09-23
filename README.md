@@ -18,8 +18,13 @@ a single codebase.
   back to source. The parser lives in [`internal/synctex`](internal/synctex/)
   with tests against real engine output.
 
-Cloud sync, built-in Git/GitHub, collaboration, plugins, AI, telemetry, and
-package downloads are outside the current MVP.
+Against the phased build plan in
+[`docs/project-plan.md`](docs/project-plan.md), Phases 0-4 (foundations,
+vertical slice, the live-ish compile loop, projects as folders, and
+bidirectional SyncTeX) are in place. Phase 5 editor polish is partial, and
+Phases 6-9 (GitHub sync, robustness, packaging) are not started.
+
+Collaboration, plugins, AI, and telemetry remain out of scope.
 
 ## Repository layout
 
@@ -60,9 +65,11 @@ JetBrains users can run the checked-in **Latem (Wails)** configuration in
   Code reaches the same entrypoint through [`CLAUDE.md`](CLAUDE.md).
 - [`CONTRIBUTING.md`](CONTRIBUTING.md) for branch, commit, and pull-request
   format.
+- [`docs/project-plan.md`](docs/project-plan.md) for the vision, architecture,
+  stack decisions, and the phased build plan.
 - [`CONTEXT.md`](CONTEXT.md) for product vocabulary.
-- [`docs/phase-0-spikes.md`](docs/phase-0-spikes.md) for the original
-  vertical-slice spike results.
+- [`docs/phase-0-spikes.md`](docs/phase-0-spikes.md) for the Phase 0 spike
+  results that verified the stack choices.
 
 ## License
 

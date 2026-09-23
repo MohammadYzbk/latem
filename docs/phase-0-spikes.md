@@ -1,8 +1,8 @@
 # Phase 0 — foundations: what was verified
 
-> **Historical evidence.** This document records the original vertical-slice
-> spikes and the decisions that came out of them. It is a dated snapshot, not a
-> description of current architecture or status.
+> **Historical evidence.** This document records the Phase 0 spikes from the
+> [project plan](project-plan.md) and the decisions that came out of them. It is
+> a dated snapshot, not a description of current architecture or status.
 
 Dated 2026-07-27, on macOS 15.7.7 / arm64 (Apple M4 Pro). The plan says to
 re-verify library APIs at implementation time rather than trusting a snapshot, so
