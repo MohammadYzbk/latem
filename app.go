@@ -1394,6 +1394,21 @@ func (a *App) currentPDFURL() string {
 	return fmt.Sprintf("%s?rev=%d", pdfURLPath, a.revision)
 }
 
+// ToggleFullscreen switches the window in and out of fullscreen.
+//
+// macOS has its own affordance for this once the window is allowed to go
+// fullscreen at all, but Windows offers no standard one, so the app has to
+// provide the control itself to behave the same on every platform.
+func (a *App) ToggleFullscreen() bool {
+	full := !runtime.WindowIsFullscreen(a.context())
+	if full {
+		runtime.WindowFullscreen(a.context())
+	} else {
+		runtime.WindowUnfullscreen(a.context())
+	}
+	return full
+}
+
 // EngineVersion reports the engine's self-identification for the status bar, or
 // an explanation of why there isn't one.
 func (a *App) EngineVersion() string {

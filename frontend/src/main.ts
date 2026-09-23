@@ -29,6 +29,7 @@ import {
   RenameEntry,
   SaveAndCompile,
   SetRootFile,
+  ToggleFullscreen,
 } from '../wailsjs/go/main/App';
 import type { main, project, synctex, texlog } from '../wailsjs/go/models';
 
@@ -653,6 +654,7 @@ function paletteActions(): PaletteAction[] {
     { id: 'problems', title: 'Show problems', run: () => { pinnedView = 'problems'; showView('problems', true); } },
     { id: 'log', title: 'Show raw log', run: () => { pinnedView = 'log'; showView('log', true); } },
     { id: 'theme', title: 'Switch theme (system, light, dark)', run: () => cycleTheme() },
+    { id: 'fullscreen', title: 'Toggle full screen', hint: '⌃⌘F', run: () => void ToggleFullscreen() },
     { id: 'goto-file', title: 'Go to file…', hint: '⌘P', run: () => palette.open('') },
     { id: 'goto-heading', title: 'Go to heading…', hint: '⌘⇧O', run: () => palette.open('@') },
     { id: 'goto-line', title: 'Go to line…', hint: '⌘G', run: () => palette.open(':') },
@@ -695,6 +697,13 @@ window.addEventListener('keydown', (event) => {
       event.preventDefault();
       palette.open('@');
     }
+    return;
+  }
+
+  // Ctrl-Cmd-F is the macOS convention; it reaches here on every platform.
+  if (event.ctrlKey && event.metaKey && key === 'f') {
+    event.preventDefault();
+    void ToggleFullscreen();
     return;
   }
 
