@@ -1,19 +1,27 @@
 // The editor pane.
 //
-// The language support here is the legacy `stex` stream mode, which is enough
-// for highlighting. Phase 5 replaces it with real completions (environments,
-// \ref/\cite targets pulled from the project); if a Lezer LaTeX grammar is
-// wanted for structure-aware features, that swap happens at the same time.
+// The language support is the legacy `stex` stream mode, which is enough for
+// highlighting; completion is supplied separately, from the project index and
+// the built-in LaTeX vocabulary, rather than from a grammar. A real Lezer
+// grammar would buy structural selection and smarter indentation, and is the
+// natural next step if either is wanted.
 
-import { EditorView, keymap, lineNumbers, highlightActiveLine } from '@codemirror/view';
+import { EditorView, keymap, lineNumbers, highlightActiveLine, tooltips } from '@codemirror/view';
 import { EditorState } from '@codemirror/state';
 import { StreamLanguage, indentUnit, bracketMatching, foldGutter } from '@codemirror/language';
 import { stex } from '@codemirror/legacy-modes/mode/stex';
 import { defaultKeymap, history, historyKeymap, indentWithTab } from '@codemirror/commands';
-import { closeBrackets } from '@codemirror/autocomplete';
-import { oneDark } from '@codemirror/theme-one-dark';
+import {
+  autocompletion,
+  closeBrackets,
+  closeBracketsKeymap,
+  completionKeymap,
+  startCompletion,
+} from '@codemirror/autocomplete';
 import { lintGutter, setDiagnostics, type Diagnostic as LintDiagnostic } from '@codemirror/lint';
 import type { texlog } from '../wailsjs/go/models';
+import { latexCompletions, type CompletionSources } from './latex/complete';
+import { editorTheme, isDark, themeCompartment } from './theme';
 
 export interface EditorOptions {
   doc: string;
@@ -23,6 +31,8 @@ export interface EditorOptions {
   onChange?: () => void;
   /** Called when the cursor moves onto a different line (1-based). */
   onCursorLine?: (line: number) => void;
+  /** Where completion gets the project's labels, citations and files. */
+  sources: CompletionSources;
 }
 
 export interface EditorHandle {
@@ -37,7 +47,17 @@ export interface EditorHandle {
   setDoc(content: string): void;
   /** The 1-based line the cursor is on. */
   cursorLine(): number;
+  /** Re-themes in place, so switching light/dark does not lose the buffer. */
+  setDark(dark: boolean): void;
 }
+
+// The LaTeX-aware pairs. `$` is here because unbalanced maths delimiters are one
+// of the easiest ways to produce a baffling compile error.
+const texLanguage = StreamLanguage.define(stex);
+const texBrackets = texLanguage.data.of({
+  closeBrackets: { brackets: ['(', '[', '{', '$'] },
+  commentTokens: { line: '%' },
+});
 
 export function mountEditor(parent: HTMLElement, opts: EditorOptions): EditorHandle {
   let lastCursorLine = 0;
@@ -58,7 +78,21 @@ export function mountEditor(parent: HTMLElement, opts: EditorOptions): EditorHan
         // LaTeX prose is written as long lines with paragraph breaks, so
         // horizontal scrolling would hide most of a paragraph.
         EditorView.lineWrapping,
-        StreamLanguage.define(stex),
+        texLanguage,
+        texBrackets,
+        // Render popups into the body. Inside the editor they are clipped by
+        // the pane, which truncates long citation keys and hides the detail
+        // column entirely.
+        tooltips({ parent: document.body }),
+        autocompletion({
+          override: [latexCompletions(opts.sources)],
+          // The list is LaTeX-specific and every entry is a backslash command,
+          // an environment or a key; a column of identical icons would be pure
+          // noise next to them.
+          icons: false,
+          activateOnTyping: true,
+          closeOnBlur: true,
+        }),
         // Before defaultKeymap, so Mod-s is ours. Returning true stops the
         // webview from opening its own "save page" dialog.
         keymap.of([
@@ -70,7 +104,13 @@ export function mountEditor(parent: HTMLElement, opts: EditorOptions): EditorHan
               return true;
             },
           },
+          // The conventional "complete this, now" key.
+          { key: 'Mod-Space', preventDefault: true, run: startCompletion },
         ]),
+        // Completion and bracket keys outrank the defaults, so Enter accepts a
+        // completion instead of breaking the line, and Tab walks snippet fields
+        // instead of indenting.
+        keymap.of([...closeBracketsKeymap, ...completionKeymap]),
         keymap.of([...defaultKeymap, ...historyKeymap, indentWithTab]),
         EditorView.updateListener.of((update) => {
           if (update.docChanged) opts.onChange?.();
@@ -84,14 +124,7 @@ export function mountEditor(parent: HTMLElement, opts: EditorOptions): EditorHan
             }
           }
         }),
-        oneDark,
-        EditorView.theme({
-          '&': { height: '100%', fontSize: '13px' },
-          '.cm-scroller': {
-            fontFamily: 'ui-monospace, SFMono-Regular, "SF Mono", Menlo, monospace',
-            lineHeight: '1.6',
-          },
-        }),
+        themeCompartment.of(editorTheme(isDark())),
       ],
     }),
   });
@@ -102,6 +135,7 @@ export function mountEditor(parent: HTMLElement, opts: EditorOptions): EditorHan
     focus: () => view.focus(),
     cursorLine: () => view.state.doc.lineAt(view.state.selection.main.head).number,
     setProblems: (diagnostics) => view.dispatch(setDiagnostics(view.state, toLint(view, diagnostics))),
+    setDark: (dark) => view.dispatch({ effects: themeCompartment.reconfigure(editorTheme(dark)) }),
     setDoc: (content) => {
       view.dispatch({
         changes: { from: 0, to: view.state.doc.length, insert: content },

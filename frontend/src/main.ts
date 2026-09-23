@@ -11,6 +11,9 @@ import './style.css';
 import { mountEditor, type EditorHandle } from './editor';
 import { mountPreview } from './preview';
 import { FileTree } from './tree';
+import { mountPalette, type PaletteAction } from './palette';
+import { outline, type OutlineItem } from './latex/outline';
+import { cycleTheme, initTheme, onThemeChange, themePreference } from './theme';
 import {
   Compile,
   ForwardSearch,
@@ -22,11 +25,12 @@ import {
   EngineVersion,
   OpenFile,
   OpenProjectDialog,
+  ProjectSymbols,
   RenameEntry,
   SaveAndCompile,
   SetRootFile,
 } from '../wailsjs/go/main/App';
-import type { main, synctex, texlog } from '../wailsjs/go/models';
+import type { main, project, synctex, texlog } from '../wailsjs/go/models';
 
 // How long to wait after the last keystroke before compiling.
 //
@@ -47,6 +51,8 @@ document.querySelector('#app')!.innerHTML = `
     <span class="status" id="status">loading…</span>
     <button class="btn" id="compile" title="Compile now (Cmd-S)">Compile</button>
     <button class="btn btn-quiet" id="sync" title="Show this line in the PDF (Cmd-J)">Find in PDF</button>
+    <button class="icon-btn" id="palette" title="Command palette (Cmd-K)">⌘K</button>
+    <button class="icon-btn" id="theme" title="Theme">◐</button>
     <span class="engine" id="engine"></span>
   </header>
   <main class="panes">
@@ -58,6 +64,12 @@ document.querySelector('#app')!.innerHTML = `
         <button class="icon-btn" id="new-folder" title="New folder">＋▸</button>
       </div>
       <div class="tree" id="tree"></div>
+      <div class="sidebar-head outline-head">
+        <span>Outline</span>
+        <span class="spacer"></span>
+        <span class="sidebar-hint">⌘⇧O</span>
+      </div>
+      <div class="outline" id="outline"></div>
       <div class="root-note" id="root-note"></div>
     </aside>
     <section class="pane" id="editor-pane"></section>
@@ -121,6 +133,84 @@ const tree = new FileTree(el('tree'), {
   onSetRoot: (path) => void applyProject(SetRootFile(path), { recompile: true }),
 });
 
+// --- the project index -------------------------------------------------------
+
+// What \ref, \cite and \input complete against, and what the palette lists.
+// Both are refreshed from the backend rather than derived from the open buffer,
+// because they describe the project, not the file on screen.
+let symbols: project.Symbols | null = null;
+let fileList: string[] = [];
+
+const completionSources = {
+  symbols: () => symbols,
+  files: () => fileList,
+};
+
+async function refreshSymbols() {
+  try {
+    symbols = await ProjectSymbols();
+  } catch (err) {
+    // Completion degrades to the built-in vocabulary, which is still useful.
+    console.error(err);
+    symbols = null;
+  }
+}
+
+/** Flattens the tree into the project-relative paths of every file. */
+function collectFiles(node: main.ProjectInfo['tree']): string[] {
+  const out: string[] = [];
+  const walk = (n: typeof node) => {
+    if (!n) return;
+    if (n.isDir) {
+      for (const child of n.children ?? []) walk(child);
+      return;
+    }
+    if (n.path) out.push(n.path);
+  };
+  walk(node);
+  return out.sort();
+}
+
+// --- the outline -------------------------------------------------------------
+
+let outlineItems: OutlineItem[] = [];
+
+/** Rebuilds the outline from the buffer, not from disk, so it tracks typing. */
+function renderOutline() {
+  const host = el('outline');
+  outlineItems = editor ? outline(editor.getDoc()) : [];
+
+  if (outlineItems.length === 0) {
+    host.replaceChildren();
+    const empty = document.createElement('p');
+    empty.className = 'outline-empty';
+    empty.textContent = editor ? 'No headings in this file.' : '';
+    host.append(empty);
+    return;
+  }
+
+  const list = document.createElement('ul');
+  list.className = 'outline-list';
+
+  // Headings are indented by their own level rather than by nesting depth, so a
+  // document that jumps from \section to \subsubsection still reads correctly.
+  const shallowest = Math.min(...outlineItems.map((i) => i.level));
+
+  for (const item of outlineItems) {
+    const row = document.createElement('li');
+    const button = document.createElement('button');
+    button.className = `outline-item level-${item.level}`;
+    button.style.paddingLeft = `${8 + (item.level - shallowest) * 12}px`;
+    button.textContent = item.title;
+    button.title = `${item.title} — line ${item.line}`;
+    button.addEventListener('click', () => editor?.goToLine(item.line));
+    row.append(button);
+    list.append(row);
+  }
+
+  host.replaceChildren(list);
+}
+
 // --- project and files -------------------------------------------------------
 
 function showPath(path: string) {
@@ -132,6 +222,7 @@ function showPath(path: string) {
 function renderProject(info: main.ProjectInfo) {
   el('project-name').textContent = info.name || 'No project';
   tree.render({ tree: info.tree, rootFile: info.rootFile, openFile });
+  fileList = collectFiles(info.tree);
 
   // Say plainly which document is compiled, since it is usually not this one.
   const note = el('root-note');
@@ -200,19 +291,32 @@ function showEditor(content: string) {
   if (editor) {
     editor.setDoc(content);
     editor.focus();
+    renderOutline();
     return;
   }
   editorPane.replaceChildren();
   editor = mountEditor(editorPane, {
     doc: content,
+    sources: completionSources,
     onSave: () => void compileNow(),
     onChange: () => {
       if (!compiling) setStatus('dirty', 'editing…');
       scheduleCompile();
+      scheduleOutline();
     },
     onCursorLine: (line) => scheduleSync(line),
   });
   editor.focus();
+  renderOutline();
+}
+
+// Rebuilding the outline parses the whole buffer, so it waits for a pause
+// rather than running on every keystroke.
+let outlineTimer: number | undefined;
+
+function scheduleOutline() {
+  window.clearTimeout(outlineTimer);
+  outlineTimer = window.setTimeout(renderOutline, 250);
 }
 
 /** Replaces the editor with a non-editable view; the editor is rebuilt on the
@@ -220,6 +324,7 @@ function showEditor(content: string) {
 function replaceEditorWith(node: HTMLElement) {
   editor = null;
   editorPane.replaceChildren(node);
+  renderOutline();
 }
 
 function showImage(url: string, path: string) {
@@ -264,6 +369,11 @@ async function compileNow(): Promise<void> {
     const res: main.CompileResult = editor
       ? await SaveAndCompile(openFile, editor.getDoc())
       : await Compile();
+
+    // The buffer is on disk now, so a \label written a moment ago is only
+    // completable from here on. Deliberately not awaited: completion catching
+    // up a few milliseconds late is invisible, a slower compile is not.
+    void refreshSymbols();
 
     if (res.error) {
       setStatus('broken', res.error);
@@ -501,6 +611,62 @@ el('toggle-log').addEventListener('click', () => {
   showView(pinnedView, true);
 });
 
+// --- theme -------------------------------------------------------------------
+
+const THEME_GLYPH = { system: '◐', light: '☀', dark: '☾' } as const;
+
+function renderThemeButton() {
+  const preference = themePreference();
+  const button = el('theme');
+  button.textContent = THEME_GLYPH[preference];
+  button.title = `Theme: ${preference} — click to change`;
+}
+
+// The editor carries its own copy of the theme, so it has to be told.
+onThemeChange((dark) => {
+  editor?.setDark(dark);
+  renderThemeButton();
+});
+
+// --- the command palette -----------------------------------------------------
+
+function openProjectFolder() {
+  void (async () => {
+    const info = await OpenProjectDialog();
+    openFile = '';
+    await afterProjectChange(info);
+  })();
+}
+
+function paletteActions(): PaletteAction[] {
+  return [
+    { id: 'compile', title: 'Compile now', hint: '⌘S', run: () => void compileNow() },
+    {
+      id: 'sync',
+      title: 'Find this line in the PDF',
+      hint: '⌘J',
+      run: () => editor && syncToCursor(editor.cursorLine(), true),
+    },
+    { id: 'open-project', title: 'Open project folder…', run: openProjectFolder },
+    { id: 'new-file', title: 'New file', run: () => tree.beginCreate(false) },
+    { id: 'new-folder', title: 'New folder', run: () => tree.beginCreate(true) },
+    { id: 'problems', title: 'Show problems', run: () => { pinnedView = 'problems'; showView('problems', true); } },
+    { id: 'log', title: 'Show raw log', run: () => { pinnedView = 'log'; showView('log', true); } },
+    { id: 'theme', title: 'Switch theme (system, light, dark)', run: () => cycleTheme() },
+    { id: 'goto-file', title: 'Go to file…', hint: '⌘P', run: () => palette.open('') },
+    { id: 'goto-heading', title: 'Go to heading…', hint: '⌘⇧O', run: () => palette.open('@') },
+    { id: 'goto-line', title: 'Go to line…', hint: '⌘G', run: () => palette.open(':') },
+  ];
+}
+
+const palette = mountPalette({
+  actions: paletteActions,
+  files: () => fileList,
+  sections: () => outlineItems,
+  openFile: (path) => void openPath(path),
+  goToLine: (line) => editor?.goToLine(line),
+});
+
 // --- wiring ------------------------------------------------------------------
 
 el('compile').addEventListener('click', () => void compileNow());
@@ -509,30 +675,55 @@ el('sync').addEventListener('click', () => {
 });
 el('new-file').addEventListener('click', () => tree.beginCreate(false));
 el('new-folder').addEventListener('click', () => tree.beginCreate(true));
-el('open-project').addEventListener('click', () => {
-  void (async () => {
-    const info = await OpenProjectDialog();
-    openFile = '';
-    await afterProjectChange(info);
-  })();
-});
+el('open-project').addEventListener('click', openProjectFolder);
+el('palette').addEventListener('click', () => palette.open('>'));
+el('theme').addEventListener('click', () => cycleTheme());
 
-// Cmd-S works even when focus is in the tree, not the editor.
+// Shortcuts that must work wherever focus is — the tree, the preview, or the
+// editor — so they live on the window rather than in the editor's keymap.
 window.addEventListener('keydown', (event) => {
   if (!(event.metaKey || event.ctrlKey)) return;
-  if (event.key === 's') {
-    event.preventDefault();
-    void compileNow();
+  const key = event.key.toLowerCase();
+
+  // Cmd-Shift-P / Cmd-Shift-O address the palette's other modes.
+  if (event.shiftKey) {
+    if (key === 'p') {
+      event.preventDefault();
+      palette.open('>');
+    }
+    if (key === 'o') {
+      event.preventDefault();
+      palette.open('@');
+    }
+    return;
   }
-  // Cmd-J: take me to this line in the PDF.
-  if (event.key === 'j') {
-    event.preventDefault();
-    if (editor) syncToCursor(editor.cursorLine(), true);
+
+  switch (key) {
+    case 's':
+      event.preventDefault();
+      void compileNow();
+      break;
+    // Cmd-J: take me to this line in the PDF.
+    case 'j':
+      event.preventDefault();
+      if (editor) syncToCursor(editor.cursorLine(), true);
+      break;
+    case 'k':
+    case 'p':
+      event.preventDefault();
+      palette.open('');
+      break;
+    case 'g':
+      event.preventDefault();
+      palette.open(':');
+      break;
   }
 });
 
 async function afterProjectChange(info: main.ProjectInfo) {
   renderProject(info);
+  // A different project means different labels, citations and macros.
+  void refreshSymbols();
   const toOpen = info.openFile || info.rootFile;
   if (toOpen) {
     await openPath(toOpen, info);
@@ -543,6 +734,9 @@ async function afterProjectChange(info: main.ProjectInfo) {
 }
 
 async function init() {
+  initTheme();
+  renderThemeButton();
+
   EngineVersion()
     .then((v) => (el('engine').textContent = v))
     .catch((err) => console.error(err));

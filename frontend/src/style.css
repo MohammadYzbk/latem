@@ -1,20 +1,142 @@
-/* Phase 0 chrome. Deliberately plain — Phase 5 owns the real design. */
+/* Design tokens.
+ *
+ * Light is the base palette and dark is the override, so a viewer whose system
+ * is set to light gets light without the app having to run any JavaScript
+ * first. An explicit choice stamps [data-theme] on the root and wins over the
+ * media query in both directions.
+ *
+ * The editor reads these same variables through its CodeMirror theme, which is
+ * what keeps the chrome and the text from drifting apart. */
 
 :root {
+  color-scheme: light;
+
+  --bg: #fbfaf8;
+  --bg-raised: #f3f1ed;
+  --bg-sunken: #e9e6e0;
+  --fg: #23201c;
+  --fg-dim: #6d6963;
+  --fg-faint: #a29c93;
+  --border: #e0dbd3;
+  --border-strong: #c8c2b8;
+
+  --accent: #2f5fd0;
+  --accent-fg: #ffffff;
+
+  --ok: #2f7d43;
+  --bad: #b43434;
+  --dirty: #8a6000;
+  --pending: #8b8680;
+
+  --selection: #cfdcf7;
+  --active-line: #f4f2ee;
+  --bracket-match: #dbe6c8;
+  --shadow: 0 12px 32px rgba(35, 32, 28, 0.16);
+
+  --syn-comment: #9a938a;
+  --syn-command: #2f5fd0;
+  --syn-env: #7a3fb5;
+  --syn-atom: #a15c00;
+  --syn-number: #a15c00;
+  --syn-string: #2b7a3d;
+  --syn-name: #23201c;
+  --syn-bracket: #8a8378;
+  --syn-operator: #0f6f8f;
+  --syn-meta: #6d6963;
+
+  /* Typography. Prose is read in the chrome, source is read in the editor, and
+     they want different faces. */
+  --sans: ui-sans-serif, -apple-system, "Segoe UI", system-ui, sans-serif;
+  --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, "Cascadia Mono",
+    "Roboto Mono", Consolas, monospace;
+  --editor-size: 13.5px;
+  --editor-leading: 1.65;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    color-scheme: dark;
+
+    --bg: #16181d;
+    --bg-raised: #1e2127;
+    --bg-sunken: #2b2f38;
+    --fg: #d7dae0;
+    --fg-dim: #8a919e;
+    --fg-faint: #5d636f;
+    --border: #31353f;
+    --border-strong: #454b58;
+
+    --accent: #7aa2f7;
+    --accent-fg: #11131a;
+
+    --ok: #7fd18b;
+    --bad: #e88b8b;
+    --dirty: #e0c07a;
+    --pending: #6f7683;
+
+    --selection: #2b3a5c;
+    --active-line: #1c1f26;
+    --bracket-match: #3a4a34;
+    --shadow: 0 16px 40px rgba(0, 0, 0, 0.5);
+
+    --syn-comment: #6f7683;
+    --syn-command: #7aa2f7;
+    --syn-env: #c99bf0;
+    --syn-atom: #e0af68;
+    --syn-number: #d6a76b;
+    --syn-string: #9ece6a;
+    --syn-name: #d7dae0;
+    --syn-bracket: #8a919e;
+    --syn-operator: #89ddff;
+    --syn-meta: #8a919e;
+  }
+}
+
+:root[data-theme="dark"] {
+  color-scheme: dark;
+
   --bg: #16181d;
   --bg-raised: #1e2127;
   --bg-sunken: #2b2f38;
   --fg: #d7dae0;
   --fg-dim: #8a919e;
+  --fg-faint: #5d636f;
   --border: #31353f;
+  --border-strong: #454b58;
+
+  --accent: #7aa2f7;
+  --accent-fg: #11131a;
+
   --ok: #7fd18b;
   --bad: #e88b8b;
   --dirty: #e0c07a;
   --pending: #6f7683;
+
+  --selection: #2b3a5c;
+  --active-line: #1c1f26;
+  --bracket-match: #3a4a34;
+  --shadow: 0 16px 40px rgba(0, 0, 0, 0.5);
+
+  --syn-comment: #6f7683;
+  --syn-command: #7aa2f7;
+  --syn-env: #c99bf0;
+  --syn-atom: #e0af68;
+  --syn-number: #d6a76b;
+  --syn-string: #9ece6a;
+  --syn-name: #d7dae0;
+  --syn-bracket: #8a919e;
+  --syn-operator: #89ddff;
+  --syn-meta: #8a919e;
 }
 
 * {
   box-sizing: border-box;
+}
+
+/* An author-stylesheet `display` beats the UA rule for [hidden], so anything
+   given a display value would ignore the attribute without this. */
+[hidden] {
+  display: none !important;
 }
 
 html,
@@ -27,7 +149,8 @@ body,
 body {
   background: var(--bg);
   color: var(--fg);
-  font: 13px/1.5 ui-sans-serif, -apple-system, system-ui, sans-serif;
+  font: 13px/1.5 var(--sans);
+  -webkit-font-smoothing: antialiased;
   overflow: hidden;
 }
 
@@ -488,4 +611,181 @@ body {
 /* CodeMirror fills its pane. */
 .cm-editor {
   height: 100%;
+}
+
+/* --- outline ---------------------------------------------------------------
+ *
+ * The outline shares the sidebar with the file tree. Both scroll on their own
+ * so a long chapter list cannot push the files out of reach. */
+
+.outline-head {
+  border-top: 1px solid var(--border);
+}
+
+.sidebar-hint {
+  font-size: 10px;
+  color: var(--fg-faint);
+  letter-spacing: 0;
+}
+
+.outline {
+  flex: 1 1 auto;
+  min-height: 0;
+  max-height: 45%;
+  overflow: auto;
+  padding-bottom: 8px;
+}
+
+.outline-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.outline-item {
+  display: block;
+  width: 100%;
+  border: none;
+  background: none;
+  color: var(--fg-dim);
+  font: inherit;
+  font-size: 12px;
+  text-align: left;
+  padding: 3px 8px;
+  cursor: pointer;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.outline-item:hover {
+  background: var(--bg-sunken);
+  color: var(--fg);
+}
+
+/* Depth is already carried by indentation, so weight only has to separate the
+   top level from everything under it. */
+.outline-item.level-0,
+.outline-item.level-1 {
+  color: var(--fg);
+  font-weight: 600;
+}
+
+.outline-item.level-2 {
+  color: var(--fg);
+}
+
+.outline-empty {
+  margin: 0;
+  padding: 6px 8px;
+  color: var(--fg-faint);
+  font-size: 11px;
+}
+
+/* --- command palette ------------------------------------------------------- */
+
+.palette-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 40;
+  display: flex;
+  justify-content: center;
+  align-items: flex-start;
+  padding-top: 12vh;
+  background: rgba(0, 0, 0, 0.32);
+}
+
+.palette {
+  width: min(620px, 92vw);
+  display: flex;
+  flex-direction: column;
+  max-height: 60vh;
+  background: var(--bg-raised);
+  border: 1px solid var(--border-strong);
+  border-radius: 10px;
+  box-shadow: var(--shadow);
+  overflow: hidden;
+}
+
+.palette-input {
+  border: none;
+  border-bottom: 1px solid var(--border);
+  background: none;
+  color: var(--fg);
+  font: inherit;
+  font-size: 14px;
+  padding: 12px 14px;
+  outline: none;
+}
+
+.palette-input::placeholder {
+  color: var(--fg-faint);
+}
+
+.palette-list {
+  margin: 0;
+  padding: 4px;
+  list-style: none;
+  overflow: auto;
+  min-height: 0;
+}
+
+.palette-row {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  padding: 6px 10px;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 13px;
+}
+
+.palette-row.active {
+  background: var(--accent);
+  color: var(--accent-fg);
+}
+
+.palette-title {
+  flex: 0 1 auto;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* The matched characters, marked by the fuzzy filter. Weight rather than colour
+   so it stays legible on the selected row too. */
+.palette-title b {
+  font-weight: 700;
+}
+
+.palette-detail {
+  flex: 1 1 auto;
+  min-width: 0;
+  font-size: 11px;
+  color: var(--fg-dim);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.palette-hint {
+  margin-left: auto;
+  flex: 0 0 auto;
+  font-size: 11px;
+  color: var(--fg-faint);
+  font-family: var(--mono);
+}
+
+.palette-row.active .palette-detail,
+.palette-row.active .palette-hint {
+  color: var(--accent-fg);
+  opacity: 0.8;
+}
+
+.palette-empty {
+  margin: 0;
+  padding: 14px;
+  color: var(--fg-faint);
+  font-size: 12px;
+  text-align: center;
 }

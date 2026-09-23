@@ -499,6 +499,27 @@ func (a *App) infoLocked(errMsg string) ProjectInfo {
 	return info
 }
 
+// ProjectSymbols lists the cross-reference targets the project defines, so the
+// editor can complete \ref and \cite against the whole project rather than the
+// buffer on screen.
+//
+// It rescans on demand rather than caching. A scan of a normal project costs
+// milliseconds, and a stale list that omits the label you wrote a moment ago is
+// worse than the scan: completion you cannot trust is completion you stop using.
+func (a *App) ProjectSymbols() project.Symbols {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+
+	if a.proj == nil {
+		return project.Symbols{Error: "no project is open"}
+	}
+	symbols, err := a.proj.Symbols()
+	if err != nil {
+		symbols.Error = err.Error()
+	}
+	return symbols
+}
+
 // OpenProjectDialog asks for a directory and opens it as a project.
 func (a *App) OpenProjectDialog() ProjectInfo {
 	dir, err := runtime.OpenDirectoryDialog(a.context(), runtime.OpenDialogOptions{

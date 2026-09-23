@@ -17,12 +17,16 @@ a single codebase.
   `Cmd-J` jumps to the current source location, and clicking the preview jumps
   back to source. The parser lives in [`internal/synctex`](internal/synctex/)
   with tests against real engine output.
+- Completes LaTeX commands, environments, and math snippets, plus `\ref` and
+  `\cite` targets scanned from the whole project rather than the open buffer.
+- Has a command palette (`Cmd-K`), a document outline, and light/dark theming
+  that follows the system or an explicit choice.
 
 Against the phased build plan in
-[`docs/project-plan.md`](docs/project-plan.md), Phases 0-4 (foundations,
-vertical slice, the live-ish compile loop, projects as folders, and
-bidirectional SyncTeX) are in place. Phase 5 editor polish is partial, and
-Phases 6-9 (GitHub sync, robustness, packaging) are not started.
+[`docs/project-plan.md`](docs/project-plan.md), Phases 0-5 (foundations,
+vertical slice, the live-ish compile loop, projects as folders, bidirectional
+SyncTeX, and editor UX polish) are in place. Phases 6-9 (GitHub sync, sync
+robustness, packaging) are not started.
 
 Collaboration, plugins, AI, and telemetry remain out of scope.
 
@@ -38,6 +42,9 @@ internal/
   synctex/                SyncTeX parser for source/preview navigation
   project/                Project folder and file handling
 frontend/                 Vite + TypeScript UI (CodeMirror editor, pdf.js preview)
+  src/latex/              LaTeX vocabulary, completion sources, outline parsing
+  src/palette.ts          Command palette (commands, files, headings, go-to-line)
+  src/theme.ts            Light/dark tokens shared by the chrome and the editor
 build/                    Wails packaging inputs for darwin and windows
 ```
 
@@ -50,6 +57,7 @@ go install github.com/wailsapp/wails/v2/cmd/wails@v2.13.0
 wails generate module   # regenerates frontend/wailsjs bindings
 wails dev               # run with live reload
 go test ./...           # Go tests
+npm --prefix frontend test   # frontend unit tests (vitest)
 wails build             # produce a platform binary
 ```
 
