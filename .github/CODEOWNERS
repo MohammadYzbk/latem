@@ -1,0 +1,10 @@
+# Code owners for this repository.
+#
+# GitHub matches these patterns like .gitignore, last match wins, so the
+# catch-all below stays at the top and anything more specific goes underneath
+# it. Owners are requested automatically when a pull request touches a path
+# they own; with branch protection set to require review from code owners,
+# that review also becomes mandatory.
+
+# Everything.
+* @MohammadYzbk
