@@ -14,6 +14,7 @@ import { FileTree } from './tree';
 import { mountPalette, type PaletteAction } from './palette';
 import { outline, type OutlineItem } from './latex/outline';
 import { cycleTheme, initTheme, onThemeChange, themePreference } from './theme';
+import { connectGitHub, openGitHubRepository } from './github';
 import {
   Compile,
   ForwardSearch,
@@ -27,11 +28,12 @@ import {
   OpenProjectDialog,
   ProjectSymbols,
   RenameEntry,
+  RepositoryState,
   SaveAndCompile,
   SetRootFile,
   ToggleFullscreen,
 } from '../wailsjs/go/main/App';
-import type { main, project, synctex, texlog } from '../wailsjs/go/models';
+import type { main, project, synctex, texlog, vcs } from '../wailsjs/go/models';
 
 // How long to wait after the last keystroke before compiling.
 //
@@ -48,6 +50,7 @@ document.querySelector('#app')!.innerHTML = `
     </button>
     <span class="sep">/</span>
     <span class="path"><span class="dir" id="path-dir"></span><span class="file" id="path-file"></span></span>
+    <button class="git" id="git" hidden title="Git"></button>
     <span class="spacer"></span>
     <span class="status" id="status">loading…</span>
     <button class="btn" id="compile" title="Compile now (Cmd-S)">Compile</button>
@@ -170,6 +173,41 @@ function collectFiles(node: main.ProjectInfo['tree']): string[] {
   };
   walk(node);
   return out.sort();
+}
+
+// --- git state ---------------------------------------------------------------
+
+// Read on demand rather than folded into ProjectInfo: it walks the working
+// tree, and the file tree re-renders far more often than a branch changes.
+async function renderGitState() {
+  const badge = el('git');
+  let state: vcs.State;
+  try {
+    state = await RepositoryState();
+  } catch (err) {
+    console.error(err);
+    badge.hidden = true;
+    return;
+  }
+
+  // A plain folder is a perfectly normal project, so the badge disappears
+  // rather than announcing the absence of Git.
+  if (!state.repository) {
+    badge.hidden = true;
+    return;
+  }
+
+  const name = state.branch || (state.unborn ? 'no commits yet' : state.detached ? 'detached' : '');
+  badge.hidden = false;
+  badge.className = `git${state.dirty ? ' dirty' : ''}`;
+  badge.textContent = state.dirty ? `${name} •` : name;
+  badge.title = [
+    state.remote ? `Remote: ${state.remote}` : 'No remote',
+    state.dirty ? 'Uncommitted changes' : 'No uncommitted changes',
+    state.error,
+  ]
+    .filter(Boolean)
+    .join('\n');
 }
 
 // --- the outline -------------------------------------------------------------
@@ -375,6 +413,8 @@ async function compileNow(): Promise<void> {
     // completable from here on. Deliberately not awaited: completion catching
     // up a few milliseconds late is invisible, a slower compile is not.
     void refreshSymbols();
+    // Saving is also what turns a clean working copy dirty.
+    void renderGitState();
 
     if (res.error) {
       setStatus('broken', res.error);
@@ -655,6 +695,8 @@ function paletteActions(): PaletteAction[] {
     { id: 'log', title: 'Show raw log', run: () => { pinnedView = 'log'; showView('log', true); } },
     { id: 'theme', title: 'Switch theme (system, light, dark)', run: () => cycleTheme() },
     { id: 'fullscreen', title: 'Toggle full screen', hint: '⌃⌘F', run: () => void ToggleFullscreen() },
+    { id: 'github-open', title: 'Open a GitHub repository…', run: () => void openRepository() },
+    { id: 'github-connect', title: 'Connect a GitHub account…', run: () => void connectAccount() },
     { id: 'goto-file', title: 'Go to file…', hint: '⌘P', run: () => palette.open('') },
     { id: 'goto-heading', title: 'Go to heading…', hint: '⌘⇧O', run: () => palette.open('@') },
     { id: 'goto-line', title: 'Go to line…', hint: '⌘G', run: () => palette.open(':') },
@@ -669,6 +711,19 @@ const palette = mountPalette({
   goToLine: (line) => editor?.goToLine(line),
 });
 
+// --- GitHub ------------------------------------------------------------------
+
+function connectAccount() {
+  void connectGitHub(() => void renderGitState());
+}
+
+function openRepository() {
+  void openGitHubRepository((info) => {
+    openFile = '';
+    void afterProjectChange(info);
+  });
+}
+
 // --- wiring ------------------------------------------------------------------
 
 el('compile').addEventListener('click', () => void compileNow());
@@ -679,6 +734,8 @@ el('new-file').addEventListener('click', () => tree.beginCreate(false));
 el('new-folder').addEventListener('click', () => tree.beginCreate(true));
 el('open-project').addEventListener('click', openProjectFolder);
 el('palette').addEventListener('click', () => palette.open('>'));
+// The branch badge is the obvious place to look for anything Git-related.
+el('git').addEventListener('click', () => connectAccount());
 el('theme').addEventListener('click', () => cycleTheme());
 
 // Shortcuts that must work wherever focus is — the tree, the preview, or the
@@ -733,6 +790,7 @@ async function afterProjectChange(info: main.ProjectInfo) {
   renderProject(info);
   // A different project means different labels, citations and macros.
   void refreshSymbols();
+  void renderGitState();
   const toOpen = info.openFile || info.rootFile;
   if (toOpen) {
     await openPath(toOpen, info);

@@ -21,12 +21,16 @@ a single codebase.
   `\cite` targets scanned from the whole project rather than the open buffer.
 - Has a command palette (`Cmd-K`), a document outline, and light/dark theming
   that follows the system or an explicit choice.
+- Connects a GitHub account, clones a repository into a managed working copy,
+  and opens it as a project, showing the current branch and whether there is
+  uncommitted work.
 
 Against the phased build plan in
-[`docs/project-plan.md`](docs/project-plan.md), Phases 0-5 (foundations,
+[`docs/project-plan.md`](docs/project-plan.md), Phases 0-6 (foundations,
 vertical slice, the live-ish compile loop, projects as folders, bidirectional
-SyncTeX, and editor UX polish) are in place. Phases 6-9 (GitHub sync, sync
-robustness, packaging) are not started.
+SyncTeX, editor UX polish, and connecting to GitHub) are in place. Phases 7-9
+(the branch and pull-request workflow, sync robustness, packaging) are not
+started.
 
 Collaboration, plugins, AI, and telemetry remain out of scope.
 
@@ -41,6 +45,9 @@ internal/
   texlog/                 Engine log parsing into diagnostics
   synctex/                SyncTeX parser for source/preview navigation
   project/                Project folder and file handling
+  forge/                  GitHub sign-in and repository listing
+  vcs/                    Cloning and working-copy state, over go-git
+  secrets/                The GitHub token, in the OS keychain
 frontend/                 Vite + TypeScript UI (CodeMirror editor, pdf.js preview)
   src/latex/              LaTeX vocabulary, completion sources, outline parsing
   src/palette.ts          Command palette (commands, files, headings, go-to-line)
@@ -63,6 +70,25 @@ wails build             # produce a platform binary
 
 JetBrains users can run the checked-in **Latem (Wails)** configuration in
 [`.run/`](.run/), which is equivalent to `wails dev`.
+
+### GitHub sign-in
+
+Browser sign-in uses the OAuth device flow, which needs a registered OAuth app.
+Register one at **Settings → Developer settings → OAuth Apps**, enable device
+flow, and pass its client ID at build time:
+
+```sh
+wails build -ldflags "-X main.githubClientID=Iv1.your-client-id"
+```
+
+`LATEM_GITHUB_CLIENT_ID` works too, for trying it without a rebuild. A client ID
+is public, so it is safe to commit in a build script; the device flow exists
+precisely because a desktop app has nowhere to keep a secret.
+
+Without one, browser sign-in is unavailable and the app asks for a personal
+access token with the `repo` scope instead. That path also covers organisations
+that block OAuth apps. Either way the token goes to the OS keychain, never to
+disk.
 
 `frontend/wailsjs` is generated and untracked. Keep `frontend/dist/.gitkeep`;
 `main.go` embeds that directory, so a fresh checkout must contain it.

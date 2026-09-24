@@ -288,6 +288,10 @@ type App struct {
 	// outside the app cannot be silently overwritten by a stale buffer.
 	opened openState
 
+	// github is the GitHub half of the app. It carries its own lock: a slow
+	// network call must not hold up a compile.
+	github *githubState
+
 	// diagnosticReadText is a test seam for verifying that source-backed
 	// diagnostic resolution reuses already admitted editor text.
 	diagnosticReadText      func(relative string) (string, error)
@@ -304,7 +308,7 @@ type openState struct {
 }
 
 func NewApp() *App {
-	return &App{compiler: tex.NewCompiler()}
+	return &App{compiler: tex.NewCompiler(), github: newGitHubState()}
 }
 
 func (a *App) startup(ctx context.Context) {
