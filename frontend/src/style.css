@@ -789,3 +789,138 @@ body {
   font-size: 12px;
   text-align: center;
 }
+
+/* --- git badge -------------------------------------------------------------- */
+
+.git {
+  flex: 0 0 auto;
+  border: 1px solid var(--border);
+  background: var(--bg-sunken);
+  color: var(--fg-dim);
+  font: inherit;
+  font-size: 11px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  cursor: pointer;
+  max-width: 18ch;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.git:hover {
+  color: var(--fg);
+  border-color: var(--border-strong);
+}
+
+/* Uncommitted work is the one Git fact worth colouring: everything else is
+   context, but this one means "you have something to lose". */
+.git.dirty {
+  color: var(--dirty);
+  border-color: var(--dirty);
+}
+
+/* --- sheets (GitHub connect, repository picker) ----------------------------- */
+
+.sheet {
+  max-height: 72vh;
+}
+
+.sheet-body {
+  padding: 18px 18px 6px;
+  overflow: auto;
+  min-height: 0;
+}
+
+.sheet-title {
+  margin: 0 0 6px;
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--fg);
+}
+
+.sheet-text {
+  margin: 0 0 12px;
+  font-size: 13px;
+  color: var(--fg-dim);
+}
+
+.sheet-note {
+  margin: 0 0 12px;
+  padding: 8px 10px;
+  border-radius: 6px;
+  border-left: 3px solid var(--border-strong);
+  background: var(--bg-sunken);
+  font-size: 12px;
+  color: var(--fg-dim);
+}
+
+.sheet-note.bad {
+  border-left-color: var(--bad);
+  color: var(--fg);
+}
+
+.sheet-note.info {
+  border-left-color: var(--accent);
+}
+
+.sheet-field {
+  margin-bottom: 4px;
+}
+
+.sheet-label {
+  display: block;
+  margin-bottom: 4px;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--fg-dim);
+}
+
+.sheet-input {
+  width: 100%;
+  padding: 8px 10px;
+  border: 1px solid var(--border-strong);
+  border-radius: 6px;
+  background: var(--bg);
+  color: var(--fg);
+  font: inherit;
+  font-size: 13px;
+  outline: none;
+}
+
+.sheet-input:focus {
+  border-color: var(--accent);
+}
+
+.sheet-hint {
+  margin: 6px 0 0;
+  font-size: 11px;
+  color: var(--fg-faint);
+}
+
+.sheet-hint code {
+  font-family: var(--mono);
+  color: var(--fg-dim);
+}
+
+.sheet-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  padding: 12px 18px 16px;
+  border-top: 1px solid var(--border);
+}
+
+/* The code has to be readable across the room, since it is being copied into
+   another device's browser as often as this one's. */
+.device-code {
+  margin: 4px 0 14px;
+  font-family: var(--mono);
+  font-size: 30px;
+  letter-spacing: 0.18em;
+  font-weight: 600;
+  color: var(--fg);
+  user-select: all;
+  text-align: center;
+}

@@ -279,7 +279,7 @@ function rank(candidates: Candidate[], query: string): Row[] {
  * what makes "gtl" prefer "Go To Line" over a file that merely contains those
  * letters scattered through it.
  */
-function fuzzy(text: string, query: string): { score: number; positions: number[] } | null {
+export function fuzzy(text: string, query: string): { score: number; positions: number[] } | null {
   const haystack = text.toLowerCase();
   const needle = query.toLowerCase();
 
@@ -310,7 +310,7 @@ function fuzzy(text: string, query: string): { score: number; positions: number[
 }
 
 /** Splits a title into plain and matched runs. */
-function highlight(text: string, matched: number[]): Node[] {
+export function highlight(text: string, matched: number[]): Node[] {
   if (matched.length === 0) return [document.createTextNode(text)];
 
   const hits = new Set(matched);
