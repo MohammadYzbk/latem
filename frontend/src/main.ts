@@ -490,6 +490,58 @@ function applyDiagnosticsToEditor() {
 
 // --- SyncTeX: source <-> PDF -------------------------------------------------
 
+// TEMPORARY: a switch for turning SyncTeX off.
+//
+// Everything this controls is in this block and the two `syncEnabled` guards
+// below, so removing it later means deleting them and the palette entry that
+// calls setSyncEnabled. It gates the UI only — the backend still parses the
+// .synctex.gz, which costs nothing while nothing asks it for a search.
+//
+// The choice is remembered, because the reason to turn the feature off is
+// usually to work without it for a while, not for a single session.
+const SYNC_STORAGE_KEY = 'latem.synctex.enabled';
+
+let syncEnabled = readSyncEnabled();
+
+function readSyncEnabled(): boolean {
+  try {
+    return localStorage.getItem(SYNC_STORAGE_KEY) !== 'off';
+  } catch {
+    // Private windows and blocked site data both throw. Defaulting to on keeps
+    // the feature available rather than silently disabling it.
+    return true;
+  }
+}
+
+function setSyncEnabled(next: boolean) {
+  syncEnabled = next;
+  try {
+    localStorage.setItem(SYNC_STORAGE_KEY, next ? 'on' : 'off');
+  } catch {
+    // See readSyncEnabled: losing the preference is better than not applying it.
+  }
+
+  renderSyncState();
+  if (!next) {
+    // Leaving the last marker on screen would imply the preview is still
+    // following the cursor.
+    window.clearTimeout(syncTimer);
+    preview.clearHighlight();
+    return;
+  }
+  if (editor) syncToCursor(editor.cursorLine(), false);
+}
+
+/** Keeps the Find in PDF button honest about whether it will do anything. */
+function renderSyncState() {
+  const button = el<HTMLButtonElement>('sync');
+  button.disabled = !syncEnabled;
+  button.title = syncEnabled
+    ? 'Show this line in the PDF (Cmd-J)'
+    : 'SyncTeX is off — turn it back on from the command palette (Cmd-K)';
+}
+// END TEMPORARY
+
 // Long enough that moving through a document with the arrow keys does not fire a
 // search per line, short enough that it feels like the marker is following along.
 const SYNC_IDLE_MS = 180;
@@ -508,7 +560,7 @@ function scheduleSync(line: number) {
  * write against. Cmd-J means "take me there", so it always scrolls.
  */
 function syncToCursor(line: number, center: boolean) {
-  if (!syncAvailable || !editor || !openFile) return;
+  if (!syncEnabled || !syncAvailable || !editor || !openFile) return;
 
   void (async () => {
     let rects: synctex.Rect[];
@@ -533,7 +585,7 @@ function syncToCursor(line: number, center: boolean) {
 
 /** Inverse search: a click on the page takes the cursor to the line behind it. */
 async function jumpToSource(page: number, x: number, y: number) {
-  if (!syncAvailable) return;
+  if (!syncEnabled || !syncAvailable) return;
 
   let loc: main.SourceLocation;
   try {
@@ -695,6 +747,12 @@ function paletteActions(): PaletteAction[] {
     { id: 'log', title: 'Show raw log', run: () => { pinnedView = 'log'; showView('log', true); } },
     { id: 'theme', title: 'Switch theme (system, light, dark)', run: () => cycleTheme() },
     { id: 'fullscreen', title: 'Toggle full screen', hint: '⌃⌘F', run: () => void ToggleFullscreen() },
+    {
+      id: 'synctex',
+      title: syncEnabled ? 'Turn SyncTeX off' : 'Turn SyncTeX on',
+      hint: syncEnabled ? 'on' : 'off',
+      run: () => setSyncEnabled(!syncEnabled),
+    },
     { id: 'github-open', title: 'Open a GitHub repository…', run: () => void openRepository() },
     { id: 'github-connect', title: 'Connect a GitHub account…', run: () => void connectAccount() },
     { id: 'goto-file', title: 'Go to file…', hint: '⌘P', run: () => palette.open('') },
@@ -803,6 +861,7 @@ async function afterProjectChange(info: main.ProjectInfo) {
 async function init() {
   initTheme();
   renderThemeButton();
+  renderSyncState();
 
   EngineVersion()
     .then((v) => (el('engine').textContent = v))
