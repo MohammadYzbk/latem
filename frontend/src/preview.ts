@@ -19,16 +19,30 @@ import type { synctex } from '../wailsjs/go/models';
 // it working in both `wails dev` and the bundled asset server.
 pdfjs.GlobalWorkerOptions.workerSrc = workerUrl;
 
-// CSS pixels per PDF point, recomputed per render so a page fits the pane.
+// CSS pixels per PDF point.
 //
 // A fixed scale was wrong in both directions: too large and the page overflows a
 // narrow preview pane and is clipped with no way to scroll to it; and the obvious
 // patch — max-width on the canvas — makes CSS shrink the bitmap so the rendered
 // page no longer matches the scale the SyncTeX maths uses, putting every
 // highlight and every click in the wrong place. One scale, used everywhere.
-const MIN_SCALE = 0.35;
-const MAX_SCALE = 2;
+const MIN_SCALE = 0.25;
+// Generous, because zooming in is how you check a figure or a subscript. The
+// canvas is backed at this scale times the device ratio, so the ceiling is what
+// stops a long document from exhausting memory.
+const MAX_SCALE = 6;
 const PAGE_PADDING = 32;
+
+/** Multiplier per zoom step: roughly the 1.2 that PDF viewers settled on. */
+const ZOOM_STEP = 1.2;
+
+// How long a pinch has to pause before the pages are redrawn at the new scale.
+// Short enough to feel like it is keeping up, long enough that a single gesture
+// does not rasterise the document a dozen times.
+const ZOOM_SETTLE_MS = 90;
+
+/** 'fit' tracks the pane width; a number is a scale the reader chose. */
+export type Zoom = 'fit' | number;
 
 export interface RenderInfo {
   pages: number;
@@ -39,10 +53,12 @@ export interface RenderInfo {
 export interface PreviewOptions {
   /** A click on a page, in PDF points from that page's top-left corner. */
   onPointClicked(page: number, x: number, y: number): void;
+  /** Called whenever the effective scale changes, for the zoom readout. */
+  onZoomChanged?(zoom: Zoom, scale: number): void;
 }
 
 export interface PreviewHandle {
-  /** Fetches and renders a PDF, keeping the reader's place. */
+  /** Fetches and renders a PDF, keeping the reader's place and zoom. */
   load(url: string): Promise<RenderInfo>;
   /** Draws the forward-search highlight, replacing any previous one. */
   highlight(rects: synctex.Rect[]): void;
@@ -51,12 +67,40 @@ export interface PreviewHandle {
   reveal(rect: synctex.Rect, center: boolean): void;
   /** Shows a message in place of a document. */
   showMessage(text: string): void;
+  zoomIn(): void;
+  zoomOut(): void;
+  /** Multiplies the current scale — for a pinch, which is continuous. */
+  zoomBy(factor: number): void;
+  /** Returns to tracking the pane width. */
+  fitWidth(): void;
+  /** Renders at exactly 100%: one CSS pixel per PDF point. */
+  actualSize(): void;
+  zoom(): Zoom;
+  scale(): number;
 }
 
 export function mountPreview(container: HTMLElement, opts: PreviewOptions): PreviewHandle {
   // The scale of the current render. Highlights and clicks must use exactly this
   // value, not the one a future render would pick.
   let scale = 1;
+  let zoom: Zoom = 'fit';
+
+  // The open document is kept so zooming can redraw without refetching, and the
+  // first page's width so a fit can be recomputed without touching the document
+  // at all.
+  let doc: pdfjs.PDFDocumentProxy | null = null;
+  // The loading task, not the document, owns the worker transport — tearing it
+  // down is what actually frees the previous PDF.
+  let task: ReturnType<typeof pdfjs.getDocument> | null = null;
+  let pageWidthPt = 0;
+
+  // Renders are async and can overlap — a zoom during a compile, or a held-down
+  // zoom key. Only the newest may touch the DOM.
+  let generation = 0;
+
+  // The last highlight, reapplied after a redraw. Without this, zooming silently
+  // drops the marker and the preview stops agreeing with the cursor.
+  let lastRects: synctex.Rect[] = [];
 
   container.addEventListener('click', (event) => {
     const target = event.target as HTMLElement | null;
@@ -72,16 +116,48 @@ export function mountPreview(container: HTMLElement, opts: PreviewOptions): Prev
     opts.onPointClicked(pageNumber, (event.clientX - box.left) / scale, (event.clientY - box.top) / scale);
   });
 
+  // Fit follows the pane, so widening the preview has to redraw. Debounced
+  // because a drag fires this continuously and each redraw rasterises every
+  // page.
+  let resizeTimer: number | undefined;
+  new ResizeObserver(() => {
+    if (zoom !== 'fit' || !doc) return;
+    window.clearTimeout(resizeTimer);
+    resizeTimer = window.setTimeout(() => {
+      if (Math.abs(fitScale() - scale) > 0.005) void render();
+    }, 120);
+  }).observe(container);
+
   const pageElement = (page: number) =>
     container.querySelector<HTMLElement>(`.page[data-page="${page}"]`);
 
+  function clamp(value: number): number {
+    return Math.min(MAX_SCALE, Math.max(MIN_SCALE, value));
+  }
+
+  function fitScale(): number {
+    if (pageWidthPt <= 0) return 1;
+    const available = Math.max(container.clientWidth - PAGE_PADDING, 120);
+    return clamp(available / pageWidthPt);
+  }
+
+  function resolveScale(): number {
+    return zoom === 'fit' ? fitScale() : clamp(zoom);
+  }
+
   function clearHighlight() {
+    lastRects = [];
     container.querySelectorAll('.sync-mark').forEach((mark) => mark.remove());
   }
 
   function highlight(rects: synctex.Rect[]) {
-    clearHighlight();
-    for (const rect of rects) {
+    lastRects = rects;
+    paintHighlight();
+  }
+
+  function paintHighlight() {
+    container.querySelectorAll('.sync-mark').forEach((mark) => mark.remove());
+    for (const rect of lastRects) {
       const page = pageElement(rect.page);
       if (!page) continue;
       const mark = document.createElement('div');
@@ -121,25 +197,78 @@ export function mountPreview(container: HTMLElement, opts: PreviewOptions): Prev
     container.replaceChildren(p);
   }
 
-  async function load(url: string): Promise<RenderInfo> {
-    const resp = await fetch(url);
-    if (!resp.ok) throw new Error(`fetching PDF: ${resp.status} ${resp.statusText}`);
-    const data = new Uint8Array(await resp.arrayBuffer());
-    const doc = await pdfjs.getDocument({ data }).promise;
+  // --- zoom --------------------------------------------------------------------
 
-    // Fit the page to the pane before rendering anything, so every page and every
-    // coordinate derived from it agree.
-    const firstPage = await doc.getPage(1);
-    const pageWidthPt = firstPage.getViewport({ scale: 1 }).width;
-    const available = Math.max(container.clientWidth - PAGE_PADDING, 120);
-    scale = Math.min(MAX_SCALE, Math.max(MIN_SCALE, available / pageWidthPt));
+  function setZoom(next: Zoom) {
+    const before = resolveScale();
+    zoom = typeof next === 'number' ? clamp(next) : next;
+    if (!doc) {
+      opts.onZoomChanged?.(zoom, resolveScale());
+      return;
+    }
+    if (Math.abs(resolveScale() - before) < 0.001) {
+      // Already there — at a limit, or fit happens to equal the chosen scale.
+      opts.onZoomChanged?.(zoom, resolveScale());
+      return;
+    }
+    void render({ anchor: 'centre' });
+  }
 
-    // Where the reader was, as a fraction of the scrollable range. A fraction
-    // rather than a pixel offset because the document can gain or lose pages
-    // between compiles; when the height is unchanged the arithmetic reproduces
-    // the exact same offset anyway.
+  function zoomIn() {
+    setZoom(resolveScale() * ZOOM_STEP);
+  }
+
+  function zoomOut() {
+    setZoom(resolveScale() / ZOOM_STEP);
+  }
+
+  // A pinch delivers dozens of events a second, and each redraw rasterises
+  // every page. So the target scale accumulates immediately — the readout
+  // tracks the fingers — while the redraw waits for a pause in the gesture.
+  let pending: number | null = null;
+  let pendingTimer: number | undefined;
+
+  function zoomBy(factor: number) {
+    if (!Number.isFinite(factor) || factor <= 0) return;
+
+    const next = clamp((pending ?? resolveScale()) * factor);
+    if (next === pending) return;
+    pending = next;
+    opts.onZoomChanged?.(next, next);
+
+    window.clearTimeout(pendingTimer);
+    pendingTimer = window.setTimeout(() => {
+      const target = pending;
+      pending = null;
+      if (target !== null) setZoom(target);
+    }, ZOOM_SETTLE_MS);
+  }
+
+  // --- rendering ---------------------------------------------------------------
+
+  /**
+   * Draws every page at the current scale.
+   *
+   * `anchor` decides what to keep still. A compile keeps the reader's position
+   * as a fraction of the document, because pages can appear or disappear
+   * between runs. A zoom keeps whatever was in the middle of the pane in the
+   * middle of the pane, which is what makes zooming feel like it is centred on
+   * what you were reading rather than on the top of the file.
+   */
+  async function render(options: { anchor?: 'fraction' | 'centre' } = {}): Promise<RenderInfo | null> {
+    if (!doc) return null;
+    const mine = ++generation;
+    const anchor = options.anchor ?? 'fraction';
+
     const scrollable = container.scrollHeight - container.clientHeight;
-    const position = scrollable > 0 ? container.scrollTop / scrollable : 0;
+    const fraction = scrollable > 0 ? container.scrollTop / scrollable : 0;
+    // Zoom anchoring works in scrolled pixels rather than a fraction of the
+    // document, so the ratio between the two scales converts it directly.
+    const centre = container.scrollTop + container.clientHeight / 2;
+    const wasScrollable = scrollable > 1;
+    const previousScale = scale;
+
+    scale = resolveScale();
 
     // Render into a detached fragment and swap it in at the end. Nothing on
     // screen changes until every page is drawn, so the pane never flashes empty
@@ -151,7 +280,9 @@ export function mountPreview(container: HTMLElement, opts: PreviewOptions): Prev
     let heightPt = 0;
 
     for (let n = 1; n <= doc.numPages; n++) {
-      const page = n === 1 ? firstPage : await doc.getPage(n);
+      const page = await doc.getPage(n);
+      if (mine !== generation) return null;
+
       const viewport = page.getViewport({ scale });
       if (n === 1) {
         const unscaled = page.getViewport({ scale: 1 });
@@ -181,17 +312,69 @@ export function mountPreview(container: HTMLElement, opts: PreviewOptions): Prev
         viewport,
         transform: dpr === 1 ? undefined : [dpr, 0, 0, dpr, 0, 0],
       }).promise;
+      if (mine !== generation) return null;
     }
 
     container.replaceChildren(staged);
 
     // Restore after the swap, in the same frame, so the reader never sees the
     // pane jump to the top and back.
-    const nowScrollable = container.scrollHeight - container.clientHeight;
-    if (nowScrollable > 0) container.scrollTop = position * nowScrollable;
+    if (anchor === 'centre') {
+      // A document that already fitted has all its content at the top, so the
+      // pane's centre was blank space below it — anchoring there would zoom
+      // the reader into an empty margin. Only a scrolled view has a centre
+      // worth preserving.
+      container.scrollTop = wasScrollable
+        ? Math.max(0, (centre * scale) / previousScale - container.clientHeight / 2)
+        : 0;
+    } else {
+      const nowScrollable = container.scrollHeight - container.clientHeight;
+      if (nowScrollable > 0) container.scrollTop = fraction * nowScrollable;
+    }
+
+    paintHighlight();
+    opts.onZoomChanged?.(zoom, scale);
 
     return { pages: doc.numPages, widthPt, heightPt };
   }
 
-  return { load, highlight, clearHighlight, reveal, showMessage };
+  async function load(url: string): Promise<RenderInfo> {
+    const resp = await fetch(url);
+    if (!resp.ok) throw new Error(`fetching PDF: ${resp.status} ${resp.statusText}`);
+    const data = new Uint8Array(await resp.arrayBuffer());
+    const nextTask = pdfjs.getDocument({ data });
+    const next = await nextTask.promise;
+
+    // Release the previous document only once the new one is in hand, so a
+    // failed fetch leaves the current render usable.
+    const previousTask = task;
+    task = nextTask;
+    doc = next;
+    void previousTask?.destroy();
+
+    // The fit depends on the page width, so it has to be known before the first
+    // page is drawn — every coordinate derived from the scale depends on it.
+    pageWidthPt = (await next.getPage(1)).getViewport({ scale: 1 }).width;
+
+    // Deliberately not resetting the zoom: a recompile that snapped the reader
+    // back to fit would undo their zoom several times a minute.
+    const info = await render({ anchor: 'fraction' });
+    if (!info) throw new Error('preview: render was superseded');
+    return info;
+  }
+
+  return {
+    load,
+    highlight,
+    clearHighlight,
+    reveal,
+    showMessage,
+    zoomIn,
+    zoomOut,
+    zoomBy,
+    fitWidth: () => setZoom('fit'),
+    actualSize: () => setZoom(1),
+    zoom: () => zoom,
+    scale: () => scale,
+  };
 }

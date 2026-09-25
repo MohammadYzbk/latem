@@ -12,6 +12,8 @@ import { mountEditor, type EditorHandle } from './editor';
 import { mountPreview } from './preview';
 import { FileTree } from './tree';
 import { mountPalette, type PaletteAction } from './palette';
+import { mountPanes } from './panes';
+import { gestureZoomFactor, wheelZoomFactor } from './zoom';
 import { outline, type OutlineItem } from './latex/outline';
 import { cycleTheme, initTheme, onThemeChange, themePreference } from './theme';
 import { connectGitHub, openGitHubRepository } from './github';
@@ -76,9 +78,18 @@ document.querySelector('#app')!.innerHTML = `
       <div class="outline" id="outline"></div>
       <div class="root-note" id="root-note"></div>
     </aside>
+    <div class="gutter" id="gutter-sidebar" role="separator" aria-orientation="vertical"
+         title="Drag to resize · double-click to reset"></div>
     <section class="pane" id="editor-pane"></section>
+    <div class="gutter" id="gutter-preview" role="separator" aria-orientation="vertical"
+         title="Drag to resize · double-click to reset"></div>
     <section class="pane preview">
       <div class="pdf-scroll" id="pdf"><p class="empty">Compiling…</p></div>
+      <div class="zoom">
+        <button class="zoom-btn" id="zoom-out" title="Zoom out (Cmd−)">−</button>
+        <button class="zoom-btn zoom-level" id="zoom-level" title="Fit to width (Cmd-0)">fit</button>
+        <button class="zoom-btn" id="zoom-in" title="Zoom in (Cmd+)">+</button>
+      </div>
     </section>
   </main>
   <footer class="drawer">
@@ -105,6 +116,13 @@ const editorPane = el('editor-pane');
 // cursor's line resolves to a place on the page.
 const preview = mountPreview(pdfEl, {
   onPointClicked: (page, x, y) => void jumpToSource(page, x, y),
+  onZoomChanged: (zoom, scale) => {
+    // "fit" is a mode, not a number, and saying so is more useful than showing
+    // whatever percentage the pane width happens to imply.
+    const label = el('zoom-level');
+    label.textContent = zoom === 'fit' ? 'fit' : `${Math.round(scale * 100)}%`;
+    label.title = zoom === 'fit' ? 'Fitting the pane width — click for 100%' : 'Fit to width (Cmd-0)';
+  },
 });
 
 let syncAvailable = false;
@@ -488,6 +506,67 @@ function applyDiagnosticsToEditor() {
   editor?.setProblems(diagnostics.filter((d) => d.file === openFile));
 }
 
+// --- pinch to zoom -----------------------------------------------------------
+
+/**
+ * WebKit's pinch events, which is what a trackpad produces inside WKWebView.
+ *
+ * They are not in lib.dom, because they have never been standardised — every
+ * other engine reports a pinch as a wheel event with ctrlKey set instead.
+ */
+interface WebKitGestureEvent extends UIEvent {
+  scale: number;
+}
+
+function wirePinchZoom(target: HTMLElement) {
+  // Both families are wired rather than feature-detected. Detection looked
+  // tidier, but `ongesturechange` existing does not guarantee it fires, and the
+  // failure mode there is a pinch that silently does nothing. Instead the
+  // native gesture takes precedence when it actually arrives, and ctrl+wheel —
+  // which is how every other engine, and a Windows precision touchpad, reports
+  // a pinch — covers the rest.
+  let lastGesture = 0;
+  // `scale` is cumulative across a gesture, so each step is the ratio against
+  // the previous reading.
+  let previous = 1;
+
+  // Long enough to span the wheel events WebKit emits alongside a gesture,
+  // short enough that a deliberate ctrl+scroll straight after one still works.
+  const GESTURE_HOLD_MS = 400;
+
+  target.addEventListener('gesturestart', (event) => {
+    event.preventDefault();
+    previous = 1;
+    lastGesture = Date.now();
+  });
+  target.addEventListener('gesturechange', (event) => {
+    // Without this the webview zooms the whole page instead of the document.
+    event.preventDefault();
+    lastGesture = Date.now();
+    const scale = (event as WebKitGestureEvent).scale;
+    if (!scale) return;
+    preview.zoomBy(gestureZoomFactor(scale, previous));
+    previous = scale;
+  });
+  target.addEventListener('gestureend', (event) => {
+    event.preventDefault();
+    lastGesture = Date.now();
+  });
+
+  target.addEventListener(
+    'wheel',
+    (event) => {
+      // An ordinary scroll must still scroll.
+      if (!event.ctrlKey) return;
+      event.preventDefault();
+      // The native gesture is already driving this pinch; WebKit sends both.
+      if (Date.now() - lastGesture < GESTURE_HOLD_MS) return;
+      preview.zoomBy(wheelZoomFactor(event.deltaY));
+    },
+    { passive: false },
+  );
+}
+
 // --- SyncTeX: source <-> PDF -------------------------------------------------
 
 // TEMPORARY: a switch for turning SyncTeX off.
@@ -753,6 +832,10 @@ function paletteActions(): PaletteAction[] {
       hint: syncEnabled ? 'on' : 'off',
       run: () => setSyncEnabled(!syncEnabled),
     },
+    { id: 'zoom-in', title: 'Zoom in', hint: '⌘+', run: () => preview.zoomIn() },
+    { id: 'zoom-out', title: 'Zoom out', hint: '⌘−', run: () => preview.zoomOut() },
+    { id: 'zoom-fit', title: 'Fit the preview to the pane', hint: '⌘0', run: () => preview.fitWidth() },
+    { id: 'zoom-actual', title: 'Preview at actual size', run: () => preview.actualSize() },
     { id: 'github-open', title: 'Open a GitHub repository…', run: () => void openRepository() },
     { id: 'github-connect', title: 'Connect a GitHub account…', run: () => void connectAccount() },
     { id: 'goto-file', title: 'Go to file…', hint: '⌘P', run: () => palette.open('') },
@@ -792,6 +875,13 @@ el('new-file').addEventListener('click', () => tree.beginCreate(false));
 el('new-folder').addEventListener('click', () => tree.beginCreate(true));
 el('open-project').addEventListener('click', openProjectFolder);
 el('palette').addEventListener('click', () => palette.open('>'));
+el('zoom-in').addEventListener('click', () => preview.zoomIn());
+el('zoom-out').addEventListener('click', () => preview.zoomOut());
+// The readout doubles as the control: clicking it swaps between fitting the
+// pane and 100%, which is the pair of zoom levels anyone actually wants.
+el('zoom-level').addEventListener('click', () =>
+  preview.zoom() === 'fit' ? preview.actualSize() : preview.fitWidth(),
+);
 // The branch badge is the obvious place to look for anything Git-related.
 el('git').addEventListener('click', () => connectAccount());
 el('theme').addEventListener('click', () => cycleTheme());
@@ -801,6 +891,24 @@ el('theme').addEventListener('click', () => cycleTheme());
 window.addEventListener('keydown', (event) => {
   if (!(event.metaKey || event.ctrlKey)) return;
   const key = event.key.toLowerCase();
+
+  // Zoom first: the shifted forms ('+' and '_') would otherwise be swallowed by
+  // the palette's shift branch below.
+  if (key === '+' || key === '=') {
+    event.preventDefault();
+    preview.zoomIn();
+    return;
+  }
+  if (key === '-' || key === '_') {
+    event.preventDefault();
+    preview.zoomOut();
+    return;
+  }
+  if (key === '0') {
+    event.preventDefault();
+    preview.fitWidth();
+    return;
+  }
 
   // Cmd-Shift-P / Cmd-Shift-O address the palette's other modes.
   if (event.shiftKey) {
@@ -859,6 +967,8 @@ async function afterProjectChange(info: main.ProjectInfo) {
 }
 
 async function init() {
+  mountPanes(document.querySelector<HTMLElement>('.panes')!);
+  wirePinchZoom(pdfEl);
   initTheme();
   renderThemeButton();
   renderSyncState();

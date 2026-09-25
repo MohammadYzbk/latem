@@ -269,8 +269,42 @@ body {
 
 .panes {
   display: grid;
-  grid-template-columns: minmax(150px, 15%) 1fr 1fr;
+  /* The outer columns are variables the dividers write to; the editor is the
+     remainder, so dragging one edge never disturbs the other. Defaults are
+     relative so a first run suits the window it opens in; a drag replaces them
+     with pixels, which is the only thing that survives a resize intact. */
+  --w-sidebar: minmax(150px, 15%);
+  --w-preview: 42%;
+  grid-template-columns: var(--w-sidebar) 6px 1fr 6px var(--w-preview);
   min-height: 0;
+}
+
+.gutter {
+  cursor: col-resize;
+  background: var(--border);
+  /* The hit area is the whole 6px column, but only a hairline is drawn, so the
+     divider reads as a seam rather than a bar. */
+  background-clip: content-box;
+  border-left: 2px solid var(--bg);
+  border-right: 3px solid var(--bg);
+  transition: background-color 120ms ease;
+}
+
+.gutter:hover,
+.gutter.dragging {
+  background: var(--accent);
+}
+
+/* During a drag the pointer leaves the gutter; without this the cursor flickers
+   between panes and the editor starts selecting text under it. */
+body.resizing {
+  cursor: col-resize;
+  user-select: none;
+}
+
+/* The gutter is excluded: it holds the pointer capture that drives the drag. */
+body.resizing *:not(.gutter) {
+  pointer-events: none;
 }
 
 .sep {
@@ -450,8 +484,59 @@ body {
 }
 
 .pane.preview {
-  border-left: 1px solid var(--border);
   background: var(--bg-sunken);
+  /* Anchors the zoom control. */
+  position: relative;
+}
+
+/* --- zoom control ----------------------------------------------------------
+ *
+ * Floating over the page rather than occupying a toolbar row: the preview is
+ * the part of the window worth giving space to, and this is consulted rarely. */
+
+.zoom {
+  position: absolute;
+  right: 12px;
+  bottom: 12px;
+  display: flex;
+  align-items: stretch;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg-raised);
+  box-shadow: var(--shadow);
+  overflow: hidden;
+  opacity: 0.55;
+  transition: opacity 120ms ease;
+}
+
+.pane.preview:hover .zoom,
+.zoom:focus-within {
+  opacity: 1;
+}
+
+.zoom-btn {
+  border: none;
+  background: none;
+  color: var(--fg-dim);
+  font: inherit;
+  font-size: 13px;
+  line-height: 1;
+  padding: 6px 10px;
+  cursor: pointer;
+}
+
+.zoom-btn:hover {
+  background: var(--bg-sunken);
+  color: var(--fg);
+}
+
+/* Tabular figures so the control does not jiggle as the number changes. */
+.zoom-level {
+  min-width: 4.5ch;
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  border-left: 1px solid var(--border);
+  border-right: 1px solid var(--border);
 }
 
 .pdf-scroll {
@@ -460,7 +545,12 @@ body {
   padding: 16px;
   display: flex;
   flex-direction: column;
+  /* `safe` matters once a zoomed page is wider than the pane: plain centring
+     splits the overflow across both sides and the left half becomes
+     unreachable, because scrollLeft cannot go negative. `safe` falls back to
+     start-alignment exactly in that case. */
   align-items: center;
+  align-items: safe center;
   gap: 16px;
   /* Positioned so a page's offsetTop is measured from this scroller and not from
      some ancestor further up — otherwise scrolling to a SyncTeX hit is off by the
